@@ -1,7 +1,6 @@
-// 📂 lib/providers/news_provider.dart
-
 import 'package:flutter/material.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:dio/dio.dart';
 import '../data/models/news_model.dart';
 import '../data/repositories/api_service.dart';
 
@@ -17,7 +16,6 @@ class NewsProvider extends ChangeNotifier {
   List<NewsPostModel> get managementPosts => _managementPosts;
   bool get isLoading => _isLoading;
 
-  /// ✅ HÀM MỚI: Xóa trạng thái khi đăng xuất (Tránh lỗi lưu "tim" người cũ)
   void clearState() {
     _posts = [];
     _managementPosts = [];
@@ -33,11 +31,10 @@ class NewsProvider extends ChangeNotifier {
       notifyListeners();
     }
     try {
-      // ✅ Truyền token vào đây để Server biết "ai" đang xem tin
       final res = await _apiService.getNewsFeed(token: token);
 
-      if (res.data['success'] == true) {
-        final List rawList = res.data['data']['data'];
+      if (res.data is Map && res.data['success'] == true) {
+        final List rawList = res.data['data']['data'] ?? [];
         _posts = rawList.map((e) => NewsPostModel.fromJson(e)).toList();
       }
     } catch (e) {
@@ -48,38 +45,56 @@ class NewsProvider extends ChangeNotifier {
     }
   }
 
-  /// 2. Thả tim - Xử lý Optimistic UI (Đã sửa tên hàm và đồng bộ data)
+  /// 2. Thả tim - Xử lý Optimistic UI Toàn diện
   Future<void> toggleLike(String token, int postId) async {
     if (_isProcessingLike) return;
 
-    final index = _posts.indexWhere((p) => p.id == postId);
-    if (index == -1) return;
+    final postIndex = _posts.indexWhere((p) => p.id == postId);
+    final manageIndex = _managementPosts.indexWhere((p) => p.id == postId);
+
+    if (postIndex == -1 && manageIndex == -1) return;
 
     _isProcessingLike = true;
-    final post = _posts[index];
 
-    // ✅ BƯỚC 1: CẬP NHẬT GIAO DIỆN LẬP TỨC (Optimistic)
-    post.isLiked = !post.isLiked;
-    post.isLiked ? post.likesCount++ : post.likesCount--;
-    notifyListeners(); // Người dùng thấy tim đỏ và số nhảy ngay trên Redmi Note 12
+    void updateLocal(int pIdx, int mIdx, {bool? forceLiked, int? forceCount}) {
+      if (pIdx != -1) {
+        if (forceLiked != null) {
+          _posts[pIdx].isLiked = forceLiked;
+          _posts[pIdx].likesCount = forceCount!;
+        } else {
+          _posts[pIdx].isLiked = !_posts[pIdx].isLiked;
+          _posts[pIdx].isLiked ? _posts[pIdx].likesCount++ : _posts[pIdx].likesCount--;
+        }
+      }
+      if (mIdx != -1) {
+        if (forceLiked != null) {
+          _managementPosts[mIdx].isLiked = forceLiked;
+          _managementPosts[mIdx].likesCount = forceCount!;
+        } else {
+          _managementPosts[mIdx].isLiked = !_managementPosts[mIdx].isLiked;
+          _managementPosts[mIdx].isLiked ? _managementPosts[mIdx].likesCount++ : _managementPosts[mIdx].likesCount--;
+        }
+      }
+      notifyListeners();
+    }
+
+    updateLocal(postIndex, manageIndex);
 
     try {
-      // ✅ BƯỚC 2: GỌI API (Đúng tên hàm likeNews)
       final res = await _apiService.likeNews(postId, token);
 
-      if (res.data['success'] == true) {
-        // ✅ BƯỚC 3: ĐỒNG BỘ DỮ LIỆU THỰC TẾ TỪ SERVER
-        // Backend trả về likes_count và is_liked chính xác 100%
-        post.likesCount = res.data['likes_count'];
-        post.isLiked = res.data['is_liked'];
-        notifyListeners();
+      if (res.data is Map && res.data['success'] == true) {
+        updateLocal(
+            postIndex,
+            manageIndex,
+            forceLiked: res.data['is_liked'],
+            forceCount: res.data['likes_count']
+        );
       }
     } catch (e) {
-      // 🛑 HOÀN TÁC: Nếu lỗi mạng thì trả lại trạng thái cũ
-      post.isLiked = !post.isLiked;
-      post.isLiked ? post.likesCount++ : post.likesCount--;
-      notifyListeners();
-      Fluttertoast.showToast(msg: "Lỗi kết nối khi thả tim!");
+      // 🛑 HOÀN TÁC: Trả lại trạng thái cũ nếu lỗi mạng
+      updateLocal(postIndex, manageIndex);
+      Fluttertoast.showToast(msg: "Không thể gửi tương tác!");
     } finally {
       _isProcessingLike = false;
     }
@@ -90,13 +105,14 @@ class NewsProvider extends ChangeNotifier {
     try {
       final res = await _apiService.sendComment(postId, content, token, parentId: parentId);
 
-      if (res.data is! Map) return false;
-
-      if (res.data['success'] == true) {
+      if (res.data is Map && res.data['success'] == true) {
         final index = _posts.indexWhere((p) => p.id == postId);
-        if (index != -1) _posts[index].commentsCount++;
-        // Tải lại thầm lặng để cập nhật danh sách bình luận mới nhất
-        await fetchNews(isSilent: true);
+        if (index != -1) {
+          _posts[index].commentsCount++;
+          notifyListeners();
+        }
+        // Tải lại thầm lặng để lấy danh sách comment mới nhất
+        await fetchNews(token: token, isSilent: true);
         return true;
       }
       return false;
@@ -105,7 +121,7 @@ class NewsProvider extends ChangeNotifier {
     }
   }
 
-  /// 4. Sửa bài viết (Đồng bộ sau khi cập nhật thành công)
+  /// 4. Sửa bài viết
   Future<bool> updateNewsPost({
     required int id,
     required String title,
@@ -120,13 +136,15 @@ class NewsProvider extends ChangeNotifier {
         id: id, title: title, content: content, imagePaths: imagePaths, token: token,
       );
 
-      if (res.data['success'] == true) {
-        await fetchNews(isSilent: true); // Làm mới bảng tin công khai
-        await fetchManagementNews(token); // Làm mới bảng tin quản lý
+      if (res.data is Map && res.data['success'] == true) {
+        await fetchNews(token: token, isSilent: true);
+        await fetchManagementNews(token);
         return true;
       }
-    } catch (_) {
-      Fluttertoast.showToast(msg: "Cập nhật bài viết thất bại");
+    } catch (e) {
+      String errorMsg = "Cập nhật thất bại";
+      if (e is DioException) errorMsg = e.response?.data['message'] ?? errorMsg;
+      Fluttertoast.showToast(msg: errorMsg);
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -134,28 +152,33 @@ class NewsProvider extends ChangeNotifier {
     return false;
   }
 
-  // --- CÁC HÀM QUẢN LÝ KHÁC GIỮ NGUYÊN ---
+  /// 5. Lấy danh sách bài viết quản lý
   Future<void> fetchManagementNews(String token) async {
     _isLoading = true;
     notifyListeners();
     try {
       final List<dynamic> data = await _apiService.getNewsManagement(token);
       _managementPosts = data.map((e) => NewsPostModel.fromJson(e)).toList();
-    } catch (_) {} finally {
+    } catch (e) {
+      debugPrint("❌ Lỗi Quản lý tin: $e");
+    } finally {
       _isLoading = false;
       notifyListeners();
     }
   }
 
+  /// 6. Xóa bài viết
   Future<void> deleteNewsPost(int postId, String token) async {
     try {
       final res = await _apiService.deleteNews(postId, token);
-      if (res.data['success'] == true) {
+      if (res.data is Map && res.data['success'] == true) {
         _managementPosts.removeWhere((p) => p.id == postId);
         _posts.removeWhere((p) => p.id == postId);
         notifyListeners();
-        Fluttertoast.showToast(msg: "Đã xóa bài viết");
+        Fluttertoast.showToast(msg: "Đã xóa bài viết thành công");
       }
-    } catch (_) {}
+    } catch (e) {
+      Fluttertoast.showToast(msg: "Không thể xóa bài viết này");
+    }
   }
 }

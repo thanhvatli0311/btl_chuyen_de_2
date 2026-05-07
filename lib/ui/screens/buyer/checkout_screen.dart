@@ -61,8 +61,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   /// Chức năng: Giải phóng các bộ điều khiển văn bản khi màn hình bị đóng.
-  /// Tham số đầu vào: Không có.
-  /// Giá trị trả về: Không có.
   @override
   void dispose() {
     _nameController.dispose();
@@ -221,9 +219,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  /// Chức năng: Xây dựng ô nhập liệu văn bản chuẩn cho trang thanh toán.
-  /// Tham số đầu vào: [label] nhãn ô nhập, [controller] bộ điều khiển, [icon] biểu tượng, [px] độ lệch cỡ chữ.
-  /// Giá trị trả về: Widget dạng Padding chứa TextField.
+  /// Xây dựng ô nhập liệu văn bản cho trang thanh toán.
   Widget _buildTextField(String label, TextEditingController controller, IconData icon, double px) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -242,9 +238,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  /// Chức năng: Xây dựng một tùy chọn thanh toán đơn lẻ (Radio button).
-  /// Tham số đầu vào: [value] giá trị mã, [title] nhãn hiển thị, [icon] biểu tượng minh họa, [px] cỡ chữ.
-  /// Giá trị trả về: Widget RadioListTile.
+  /// Xây dựng một tùy chọn thanh toán
   Widget _buildPaymentOption(String value, String title, IconData icon, double px) {
     return RadioListTile(
       contentPadding: EdgeInsets.zero,
@@ -257,9 +251,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  /// Chức năng: Tạo khung chứa (Card) phân đoạn cho các phần thông tin khác nhau.
-  /// Tham số đầu vào: [isDark] chế độ tối, [child] nội dung bên trong khung.
-  /// Giá trị trả về: Widget Container có trang trí bóng đổ.
   Widget _buildSectionCard(bool isDark, {required Widget child}) {
     return Container(
       width: double.infinity,
@@ -274,8 +265,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   /// Chức năng: Xây dựng nút xác nhận đặt hàng và xử lý logic gửi dữ liệu lên server.
-  /// Tham số đầu vào: [context], [isDark], [px].
-  /// Giá trị trả về: Widget thanh điều hướng dưới cùng (BottomNavigationBar).
   Widget _buildBottomAction(BuildContext context, bool isDark, double px) {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -345,8 +334,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   /// Chức năng: Hiển thị bảng chọn từ danh sách địa chỉ đã lưu trong sổ địa chỉ.
-  /// Tham số đầu vào: [context].
-  /// Giá trị trả về: Không có (Mở BottomSheet).
   void _showSavedAddresses(BuildContext context) {
     final addrProv = context.read<AddressProvider>();
     final isDark = context.read<BaseProvider>().isDarkMode;
@@ -413,23 +400,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  /// Chức năng: Hiển thị hộp thoại vòng xoay không thể bị đóng khi đang thực hiện giao dịch.
-  /// Tham số đầu vào: Không có.
-  /// Giá trị trả về: Không có.
+  /// Hiển thị hộp thoại vòng xoay không thể bị đóng khi đang thực hiện giao dịch.
   void _showLoading() => showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => const Center(child: CircularProgressIndicator())
   );
 
-  /// Chức năng: Hiển thị thông báo đặt hàng thành công và điều hướng về trang chủ.
-  /// Tham số đầu vào: [context].
-  /// Giá trị trả về: Không có.
+  /// Hiển thị thông báo đặt hàng thành công và điều hướng về trang chủ.
   void _showSuccess(BuildContext context) {
     showDialog(
         context: context,
         barrierDismissible: false,
-        builder: (_) => AlertDialog(
+        builder: (dialogCtx) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
           title: const Column(
             children: [
@@ -442,8 +425,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           actions: [
             Center(
               child: ElevatedButton(
-                /// Xóa toàn bộ lịch sử các trang đã mở và đưa người dùng về trang màn hình chính.
-                onPressed: () => Navigator.of(context).popUntil((route) => route.isFirst),
+                onPressed: () {
+                  /// Đóng hộp thoại thành công bằng context của builder.
+                  Navigator.pop(dialogCtx);
+                  /// Điều hướng về màn hình gốc bằng context của màn hình chính.
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                },
                 child: const Text("TIẾP TỤC MUA SẮM"),
               ),
             )
@@ -453,8 +440,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   /// Chức năng: Hiển thị bảng nhập liệu địa chỉ chi tiết theo từng cấp bậc hành chính.
-  /// Tham số đầu vào: [context].
-  /// Giá trị trả về: Không có.
   void _showStructuredAddressForm(BuildContext context) {
     final isDark = context.read<BaseProvider>().isDarkMode;
     final px = context.read<BaseProvider>().textOffset;
@@ -518,9 +503,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
   }
 
-  /// Chức năng: Xây dựng ô nhập liệu đơn lẻ bên trong hộp thoại địa chỉ.
-  /// Tham số đầu vào: [label], [ctrl], [icon], [isDark], [px].
-  /// Giá trị trả về: Widget dạng Padding chứa TextField.
+  /// Xây dựng ô nhập liệu đơn lẻ bên trong hộp thoại địa chỉ.
   Widget _buildModalField(String label, TextEditingController ctrl, IconData icon, bool isDark, double px) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),

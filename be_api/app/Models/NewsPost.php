@@ -9,7 +9,7 @@ class NewsPost extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['shop_id', 'title', 'content', 'images', 'likes_count', 'comments_count'];
+    protected $fillable = ['shop_id', 'title', 'content', 'images', 'likes_count', 'comments_count', 'status'];
 
     protected $casts = [
         'images' => 'array',
@@ -17,17 +17,17 @@ class NewsPost extends Model
         'comments_count' => 'integer',
     ];
 
-    public function shop() { return $this->belongsTo(Shop::class, 'shop_id'); }
+   public function shop()
+    {
+        return $this->belongsTo(Shop::class, 'shop_id');
+    }
 
     public function likes() { return $this->hasMany(NewsPostLike::class, 'news_post_id'); }
-    public function user() {
-        return $this->belongsTo(User::class);
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'shop_id');
     }
 
-    // Hình ảnh của bài tin
-    public function images() {
-        return $this->hasMany(NewsPost::class, 'post_id');
-    }
 
     // Bình luận (Lấy kèm user để hiện avatar/tên)
     public function comments() {

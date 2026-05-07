@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:dio/dio.dart';
 import '../../../providers/base_provider.dart';
 import '../../../data/repositories/api_service.dart';
 import '../../../data/models/category_brand_model.dart';
@@ -19,10 +20,8 @@ class AddPhoneScreen extends StatefulWidget {
 
 class _AddPhoneScreenState extends State<AddPhoneScreen> {
   final _formKey = GlobalKey<FormState>();
+  final ApiService _apiService = ApiService();
   final ImagePicker _picker = ImagePicker();
-
-  /// Biểu thức chính quy dùng để lọc bỏ các ký tự không phải là số.
-  static final RegExp _numericRegex = RegExp(r'[^0-9]');
 
   bool _isSubmitting = false;
   bool _isPickingImage = false;
@@ -32,12 +31,16 @@ class _AddPhoneScreenState extends State<AddPhoneScreen> {
   final TextEditingController _descCtrl = TextEditingController();
   final TextEditingController _priceCtrl = TextEditingController();
   final TextEditingController _stockCtrl = TextEditingController();
+
   final TextEditingController _ramCtrl = TextEditingController();
   final TextEditingController _pinCtrl = TextEditingController();
   final TextEditingController _screenCtrl = TextEditingController();
   final TextEditingController _storageCtrl = TextEditingController();
   final TextEditingController _cpuCtrl = TextEditingController();
+
   final TextEditingController _searchBrandCtrl = TextEditingController();
+  final TextEditingController _newBrandNameCtrl = TextEditingController();
+  bool _isAddingNewBrand = false;
 
   XFile? _thumbnail;
   final List<XFile> _subImages = [];
@@ -57,38 +60,16 @@ class _AddPhoneScreenState extends State<AddPhoneScreen> {
     _loadData();
   }
 
-  /// Chức năng: Giải phóng toàn bộ tài nguyên của các bộ điều khiển khi đóng màn hình.
-  /// Tham số đầu vào: Không có.
-  /// Giá trị trả về: Không có.
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    _descCtrl.dispose();
-    _priceCtrl.dispose();
-    _stockCtrl.dispose();
-    _ramCtrl.dispose();
-    _pinCtrl.dispose();
-    _screenCtrl.dispose();
-    _storageCtrl.dispose();
-    _cpuCtrl.dispose();
-    _searchBrandCtrl.dispose();
-    super.dispose();
-  }
-
   /// Chức năng: Đổ dữ liệu từ Model sản phẩm hiện tại vào các ô nhập liệu (dùng khi sửa máy).
-  /// Tham số đầu vào: Không có.
-  /// Giá trị trả về: Không có.
   void _fillDataForEdit() {
-    final p = widget.phone!;
-    _titleCtrl.text = p.title;
-    _descCtrl.text = p.description;
-    _priceCtrl.text = p.price.toInt().toString();
-    _stockCtrl.text = p.stock.toString();
-    _condition = p.condition;
-    _selectedBrandId = p.brandId;
-    _selectedCategoryId = p.categoryId;
+    _titleCtrl.text = widget.phone!.title;
+    _descCtrl.text = widget.phone!.description;
+    _priceCtrl.text = widget.phone!.price.toInt().toString();
+    _stockCtrl.text = widget.phone!.stock.toString();
+    _condition = widget.phone!.condition;
+    _selectedBrandId = widget.phone!.brandId;
+    _selectedCategoryId = widget.phone!.categoryId;
 
-    /// Xử lý tách đơn vị đo lường khỏi giá trị thông số để người dùng dễ chỉnh sửa số.
     _ramCtrl.text = _getOldSpec('RAM').replaceAll(' GB', '');
     _pinCtrl.text = _getOldSpec('Pin').replaceAll(' mAh', '');
     _screenCtrl.text = _getOldSpec('Màn hình');
@@ -97,34 +78,26 @@ class _AddPhoneScreenState extends State<AddPhoneScreen> {
   }
 
   /// Chức năng: Tìm kiếm giá trị thông số kỹ thuật dựa trên tên khóa (Key).
-  /// Tham số đầu vào: [key] - Tên thông số cần lấy (RAM, Pin, ...).
-  /// Giá trị trả về: Chuỗi giá trị của thông số hoặc chuỗi rỗng nếu không tìm thấy.
   String _getOldSpec(String key) {
     if (widget.phone == null) return "";
     try {
       return widget.phone!.specs.firstWhere((s) => s.key == key).value;
-    } catch (_) { return ""; }
+    } catch (_) {
+      return "";
+    }
   }
 
-  /// Chức năng: Gọi API nạp đồng thời danh sách hãng và danh mục máy để tối ưu tốc độ nạp trang.
-  /// Tham số đầu vào: Không có.
-  /// Giá trị trả về: Future<void>.
+  /// Chức năng: Gọi API nạp đồng thời danh sách hãng và danh mục máy.
   Future<void> _loadData() async {
     try {
-      final api = context.read<BaseProvider>().apiService;
-
-      /// Sử dụng Future.wait để thực hiện các yêu cầu nạp dữ liệu song song.
-      final results = await Future.wait([
-        api.getBrands(),
-        api.getCategories(),
-      ]);
+      // ✅ SỬA LỖI .data: ApiService trả về List nên gán trực tiếp
+      final List<BrandModel> bRes = await _apiService.getBrands();
+      final List<CategoryModel> cRes = await _apiService.getCategories();
 
       if (mounted) {
         setState(() {
-          _brands = results[0] as List<BrandModel>;
-          _categories = results[1] as List<CategoryModel>;
-
-          /// Mặc định chọn các giá trị đầu tiên nếu là chế độ đăng máy mới.
+          _brands = bRes;
+          _categories = cRes;
           if (widget.phone == null) {
             if (_brands.isNotEmpty) _selectedBrandId = _brands.first.id;
             if (_categories.isNotEmpty) _selectedCategoryId = _categories.first.id;
@@ -133,392 +106,335 @@ class _AddPhoneScreenState extends State<AddPhoneScreen> {
       }
     } catch (e) {
       debugPrint("❌ Lỗi nạp dữ liệu: $e");
+      Fluttertoast.showToast(msg: "Lỗi nạp danh mục");
     }
   }
 
-  /// Chức năng: Hiển thị bảng chọn hãng sản xuất có tích hợp tính năng tìm kiếm nhanh.
-  /// Tham số đầu vào: Không có.
-  /// Giá trị trả về: Không có.
+  /// Chức năng: Hiển thị bảng chọn hãng sản xuất có tích hợp tính năng tìm kiếm và thêm mới.
   void _showBrandSearchDialog() {
     List<BrandModel> displayBrands = List.from(_brands);
     showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (ctx) => StatefulBuilder(
-            builder: (ctx, setModalState) => Container(
-                height: MediaQuery.of(ctx).size.height * 0.7,
-                decoration: BoxDecoration(
-                    color: Theme.of(ctx).cardColor,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(30))
-                ),
-                child: Column(children: [
-                  const SizedBox(height: 12),
-                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
-                  Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: TextField(
-                          controller: _searchBrandCtrl,
-                          decoration: InputDecoration(
-                              hintText: "Tìm tên hãng...",
-                              prefixIcon: const Icon(Icons.search),
-                              filled: true,
-                              fillColor: Colors.grey.withOpacity(0.1),
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none)
-                          ),
-                          /// Cập nhật danh sách hiển thị ngay khi người dùng gõ tìm kiếm.
-                          onChanged: (val) => setModalState(() => displayBrands = _brands.where((b) => b.name.toLowerCase().contains(val.toLowerCase())).toList())
-                      )
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (ctx, setModalState) => Container(
+          height: MediaQuery.of(context).size.height * 0.7,
+          decoration: BoxDecoration(
+            color: Theme.of(context).cardColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+              Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey[300], borderRadius: BorderRadius.circular(2))),
+              Padding(
+                padding: const EdgeInsets.all(20),
+                child: TextField(
+                  controller: _searchBrandCtrl,
+                  decoration: InputDecoration(
+                    hintText: "Tìm tên hãng...",
+                    prefixIcon: const Icon(Icons.search),
+                    filled: true,
+                    fillColor: Colors.grey.withOpacity(0.1),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(15), borderSide: BorderSide.none),
                   ),
-                  Expanded(child: ListView.builder(
-                    itemCount: displayBrands.length,
-                    itemBuilder: (ctx, i) {
-                      final b = displayBrands[i];
-                      return ListTile(
-                          title: Text(b.name, style: const TextStyle(fontWeight: FontWeight.w500)),
-                          trailing: _selectedBrandId == b.id ? const Icon(Icons.check_circle, color: Color(0xFF0047AB)) : null,
-                          onTap: () {
-                            setState(() { _selectedBrandId = b.id; });
-                            Navigator.pop(ctx);
-                          }
-                      );
-                    },
-                  )),
-                ]))));
+                  onChanged: (val) {
+                    setModalState(() {
+                      displayBrands = _brands.where((b) => b.name.toLowerCase().contains(val.toLowerCase())).toList();
+                    });
+                  },
+                ),
+              ),
+              Expanded(
+                child: ListView(
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.add_circle_outline, color: Colors.orange),
+                      title: const Text("HÃNG KHÁC (THÊM MỚI)", style: TextStyle(fontWeight: FontWeight.bold, color: Colors.orange)),
+                      onTap: () {
+                        setState(() {
+                          _selectedBrandId = -1;
+                          _isAddingNewBrand = true;
+                        });
+                        Navigator.pop(context);
+                      },
+                    ),
+                    const Divider(),
+                    ...displayBrands.map((b) => ListTile(
+                      title: Text(b.name),
+                      trailing: _selectedBrandId == b.id ? const Icon(Icons.check_circle, color: Color(0xFF0047AB)) : null,
+                      onTap: () {
+                        setState(() {
+                          _selectedBrandId = b.id;
+                          _isAddingNewBrand = false;
+                        });
+                        Navigator.pop(context);
+                      },
+                    )),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Chức năng: Xử lý logic chọn ảnh từ thư viện.
+  Future<void> _pickImage(bool isThumb) async {
+    if (_isPickingImage) return;
+    setState(() => _isPickingImage = true);
+    try {
+      if (isThumb) {
+        final img = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 30);
+        if (img != null) setState(() => _thumbnail = img);
+      } else {
+        final List<XFile> imgs = await _picker.pickMultiImage(imageQuality: 30);
+        if (imgs.isNotEmpty) setState(() => _subImages.addAll(imgs));
+      }
+    } finally { if (mounted) setState(() => _isPickingImage = false); }
   }
 
   @override
   Widget build(BuildContext context) {
-    /// Lắng nghe chọn lọc các thay đổi về giao diện (Dark Mode) và cấu hình cỡ chữ.
-    final isDark = context.select<BaseProvider, bool>((p) => p.isDarkMode);
-    final px = context.select<BaseProvider, double>((p) => p.textOffset);
+    final base = Provider.of<BaseProvider>(context);
+    final px = base.textOffset;
+    final isDark = base.isDarkMode;
     final theme = Theme.of(context);
     final bool isEdit = widget.phone != null;
 
     return Scaffold(
       backgroundColor: isDark ? const Color(0xFF121212) : const Color(0xFFF8F9FA),
       appBar: AppBar(
-          title: Text(isEdit ? "SỬA THÔNG TIN" : "ĐĂNG BÁN MÁY",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18 + px)),
-          centerTitle: true,
-          elevation: 0,
-          backgroundColor: theme.cardColor
+        title: Text(isEdit ? "SỬA THÔNG TIN" : "ĐĂNG BÁN MÁY",
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18 + px)),
+        centerTitle: true, elevation: 0, backgroundColor: theme.cardColor,
       ),
       body: Form(
-          key: _formKey,
-          child: ListView(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.all(16),
-              children: [
-                /// Khu vực chọn và hiển thị hình ảnh máy.
-                _buildImageSection(px, theme, isDark),
-                const SizedBox(height: 20),
-                /// Khu vực nhập thông tin cơ bản: Tên, mô tả, giá, hãng, danh mục.
-                _buildCardWrapper(px, theme, isDark, "THÔNG TIN CHÍNH", [
-                  _buildInput(_titleCtrl, "Tên máy", px, isDark, hint: "iPhone 15 Pro Max...", action: TextInputAction.next),
-                  _buildInput(_descCtrl, "Mô tả tình trạng", px, isDark, maxLines: 3),
-                  Row(children: [
-                    Expanded(child: _buildInput(_priceCtrl, "Giá bán", px, isDark, isNum: true, suffix: "đ", action: TextInputAction.next)),
-                    const SizedBox(width: 12),
-                    Expanded(child: _buildInput(_stockCtrl, "Số lượng", px, isDark, isNum: true, action: TextInputAction.next)),
-                  ]),
-                  const SizedBox(height: 16),
-                  _buildBrandSelector(px, isDark),
-                  const SizedBox(height: 16),
-                  _buildCategoryDropdown(theme, isDark, px),
-                ]),
-                const SizedBox(height: 20),
-                /// Khu vực nhập thông số kỹ thuật chi tiết.
-                _buildCardWrapper(px, theme, isDark, "THÔNG SỐ KỸ THUẬT", [
-                  Row(children: [
-                    Expanded(child: _buildInput(_ramCtrl, "RAM", px, isDark, isNum: true, suffix: "GB", action: TextInputAction.next)),
-                    const SizedBox(width: 12),
-                    Expanded(child: _buildInput(_storageCtrl, "Bộ nhớ", px, isDark, suffix: "GB", action: TextInputAction.next)),
-                  ]),
-                  _buildInput(_pinCtrl, "Dung lượng Pin", px, isDark, isNum: true, suffix: "mAh", action: TextInputAction.next),
-                  _buildInput(_screenCtrl, "Màn hình", px, isDark, hint: "6.7 inch...", action: TextInputAction.next),
-                  _buildInput(_cpuCtrl, "Chip xử lý", px, isDark, action: TextInputAction.done),
-                ]),
-                const SizedBox(height: 20),
-                _buildSectionTitle("TÌNH TRẠNG MÁY", px, isDark),
-                _buildConditionChips(isDark),
-                const SizedBox(height: 40),
-                /// Nút bấm gửi dữ liệu lên server.
-                _buildSubmitButton(isEdit, px),
-                const SizedBox(height: 50),
-              ]
-          )
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _buildImageSection(px, theme, isDark),
+            const SizedBox(height: 20),
+            _buildCardWrapper(px, theme, isDark, "THÔNG TIN CHÍNH", [
+              _buildInput(_titleCtrl, "Tên máy", px, theme, isDark, hint: "iPhone 15 Pro Max..."),
+              _buildInput(_descCtrl, "Mô tả tình trạng", px, theme, isDark, maxLines: 3),
+              Row(children: [
+                Expanded(child: _buildInput(_priceCtrl, "Giá bán", px, theme, isDark, isNum: true, suffix: "đ")),
+                const SizedBox(width: 12),
+                Expanded(child: _buildInput(_stockCtrl, "Số lượng", px, theme, isDark, isNum: true)),
+              ]),
+              const SizedBox(height: 16),
+              _buildBrandSelector(px, isDark),
+              const SizedBox(height: 16),
+              _buildCategoryDropdown(theme, isDark),
+            ]),
+            const SizedBox(height: 20),
+            _buildCardWrapper(px, theme, isDark, "THÔNG SỐ KỸ THUẬT", [
+              Row(children: [
+                Expanded(child: _buildInput(_ramCtrl, "RAM", px, theme, isDark, isNum: true, suffix: "GB")),
+                const SizedBox(width: 12),
+                Expanded(child: _buildInput(_storageCtrl, "Bộ nhớ", px, theme, isDark, suffix: "GB")),
+              ]),
+              _buildInput(_pinCtrl, "Dung lượng Pin", px, theme, isDark, isNum: true, suffix: "mAh"),
+              _buildInput(_screenCtrl, "Màn hình", px, theme, isDark, hint: "6.7 inch..."),
+              _buildInput(_cpuCtrl, "Chip xử lý", px, theme, isDark),
+            ]),
+            const SizedBox(height: 20),
+            _buildSectionTitle("TÌNH TRẠNG MÁY", px, isDark),
+            _buildConditionChips(px, isDark),
+            const SizedBox(height: 40),
+            ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0047AB),
+                    minimumSize: const Size(double.infinity, 60),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))
+                ),
+                onPressed: _isSubmitting ? null : _submitData,
+                child: _isSubmitting
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : Text(isEdit ? "CẬP NHẬT THAY ĐỔI" : "XÁC NHẬN ĐĂNG BÁN",
+                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16 + px))),
+            const SizedBox(height: 50),
+          ],
+        ),
       ),
     );
   }
 
-  /// Chức năng: Xây dựng giao diện nút bấm để mở bảng chọn hãng máy.
+  /// Chức năng: Hiển thị bộ chọn hãng sản xuất.
   Widget _buildBrandSelector(double px, bool isDark) {
-    final BrandModel selectedBrand = _brands.firstWhere(
-            (b) => b.id == _selectedBrandId,
-        orElse: () => BrandModel(id: 0, name: 'Chọn hãng máy')
-    );
+    String brandName = "Chọn hãng máy";
+    if (_selectedBrandId == -1) {
+      brandName = "Hãng mới: ${_newBrandNameCtrl.text}";
+    } else if (_selectedBrandId != null) {
+      try {
+        brandName = _brands.firstWhere((b) => b.id == _selectedBrandId).name;
+      } catch (_) {}
+    }
 
-    return InkWell(
-        onTap: _showBrandSearchDialog,
-        borderRadius: BorderRadius.circular(12),
-        child: Container(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        InkWell(
+          onTap: _showBrandSearchDialog,
+          child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             decoration: BoxDecoration(
-                color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey[50],
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: isDark ? Colors.white24 : Colors.grey[300]!)
+              color: isDark ? Colors.white.withOpacity(0.05) : Colors.grey[50],
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: isDark ? Colors.white24 : Colors.grey[300]!),
             ),
             child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(selectedBrand.name, style: TextStyle(fontSize: 14 + px)),
-                  const Icon(Icons.arrow_drop_down)
-                ]
-            )
-        )
-    );
-  }
-
-  /// Chức năng: Xây dựng danh sách thả chọn cho danh mục sản phẩm (Loại máy).
-  Widget _buildCategoryDropdown(ThemeData theme, bool isDark, double px) {
-    return DropdownButtonFormField<int>(
-        value: _selectedCategoryId,
-        dropdownColor: theme.cardColor,
-        style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14 + px),
-        decoration: InputDecoration(
-            labelText: "Loại máy",
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(brandName, style: TextStyle(color: isDark ? Colors.white : Colors.black87, fontSize: 14 + px)),
+                const Icon(Icons.arrow_drop_down),
+              ],
+            ),
+          ),
         ),
-        items: _categories.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
-        onChanged: (v) => setState(() => _selectedCategoryId = v)
+        if (_isAddingNewBrand) ...[
+          const SizedBox(height: 12),
+          _buildInput(_newBrandNameCtrl, "Tên hãng mới", px, Theme.of(context), isDark, hint: "Ví dụ: Bphone..."),
+        ],
+      ],
     );
   }
 
-  /// Chức năng: Xử lý đóng gói dữ liệu và gửi yêu cầu Lưu (Thêm mới/Cập nhật) sản phẩm lên API Laravel.
-  /// Tham số đầu vào: Không có (Sử dụng dữ liệu từ Controller).
-  /// Giá trị trả về: Future<void>.
+  /// Chức năng: Hiển thị dropdown chọn danh mục.
+  Widget _buildCategoryDropdown(ThemeData theme, bool isDark) {
+    return DropdownButtonFormField<int>(
+      value: _selectedCategoryId,
+      dropdownColor: theme.cardColor,
+      decoration: InputDecoration(
+          labelText: "Loại máy",
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12))
+      ),
+      items: _categories.map((c) => DropdownMenuItem(value: c.id, child: Text(c.name))).toList(),
+      onChanged: (v) => setState(() => _selectedCategoryId = v),
+    );
+  }
+
+  /// Chức năng: Đóng gói và gửi dữ liệu lên Server.
   Future<void> _submitData() async {
-    /// Kiểm tra tính hợp lệ của toàn bộ form trước khi gửi.
     if (!_formKey.currentState!.validate()) return;
-    if (widget.phone == null && _thumbnail == null) { Fluttertoast.showToast(msg: "Vui lòng chọn ảnh!"); return; }
+    if (widget.phone == null && _thumbnail == null) { Fluttertoast.showToast(msg: "Vui lòng chọn ảnh chính!"); return; }
     if (_selectedBrandId == null) { Fluttertoast.showToast(msg: "Vui lòng chọn hãng!"); return; }
 
     setState(() => _isSubmitting = true);
-    final base = context.read<BaseProvider>();
+    final token = Provider.of<BaseProvider>(context, listen: false).token!;
 
     try {
-      /// Chuẩn bị danh sách thông số kỹ thuật đính kèm đơn vị.
+      int? finalBrandId = _selectedBrandId;
+
+      // Xử lý nếu người dùng thêm hãng mới
+      if (_selectedBrandId == -1) {
+        if (_newBrandNameCtrl.text.trim().isEmpty) throw "Vui lòng nhập tên hãng mới!";
+        final Response bRes = await _apiService.storeBrand(_newBrandNameCtrl.text.trim(), token);
+        if (bRes.data['success'] == true) {
+          finalBrandId = bRes.data['data']['id'];
+        } else {
+          throw "Không thể tạo hãng mới!";
+        }
+      }
+
       final specs = [
-        {'spec_key': 'RAM', 'spec_value': '${_ramCtrl.text.trim()} GB'},
-        {'spec_key': 'Pin', 'spec_value': '${_pinCtrl.text.trim()} mAh'},
-        {'spec_key': 'Màn hình', 'spec_value': _screenCtrl.text.trim()},
-        {'spec_key': 'Bộ nhớ', 'spec_value': '${_storageCtrl.text.trim()} GB'},
-        {'spec_key': 'Chip', 'spec_value': _cpuCtrl.text.trim()},
+        {'spec_key': 'RAM', 'spec_value': '${_ramCtrl.text} GB'},
+        {'spec_key': 'Pin', 'spec_value': '${_pinCtrl.text} mAh'},
+        {'spec_key': 'Màn hình', 'spec_value': _screenCtrl.text},
+        {'spec_key': 'Bộ nhớ', 'spec_value': '${_storageCtrl.text} GB'},
+        {'spec_key': 'Chip', 'spec_value': _cpuCtrl.text},
       ];
 
-      /// Khởi tạo bản đồ dữ liệu JSON để gửi lên máy chủ.
       final Map<String, dynamic> data = {
         'title': _titleCtrl.text.trim(),
-        'brand_id': _selectedBrandId.toString(),
+        'description': _descCtrl.text.trim(),
+        'brand_id': finalBrandId.toString(),
         'category_id': _selectedCategoryId.toString(),
-        'price': _priceCtrl.text.replaceAll(_numericRegex, ''),
-        'stock': _stockCtrl.text.trim(),
+        'price': _priceCtrl.text.replaceAll(RegExp(r'[^0-9]'), ''),
+        'stock': _stockCtrl.text,
         'condition': _condition,
         'specs': specs,
-        'description': _descCtrl.text.trim(),
       };
 
-      /// Quyết định gọi hàm Thêm mới hay Cập nhật tùy thuộc vào việc có truyền Model phone vào không.
       final res = widget.phone == null
-          ? await base.apiService.storePhoneWithImages(
-          data: data,
-          thumbnailPath: _thumbnail!.path,
-          subImagePaths: _subImages.map((e) => e.path).toList(),
-          token: base.token!
-      )
-          : await base.apiService.updatePhoneWithImages(
-          id: widget.phone!.id,
-          data: data,
-          thumbnailPath: _thumbnail?.path,
-          subImagePaths: _subImages.isEmpty ? null : _subImages.map((e) => e.path).toList(),
-          token: base.token!
-      );
+          ? await _apiService.storePhoneWithImages(data: data, thumbnailPath: _thumbnail!.path, subImagePaths: _subImages.map((e) => e.path).toList(), token: token)
+          : await _apiService.updatePhoneWithImages(id: widget.phone!.id, data: data, thumbnailPath: _thumbnail?.path, subImagePaths: _subImages.isEmpty ? null : _subImages.map((e) => e.path).toList(), token: token);
 
-      if (res.data['success']) {
+      if (res.data['success'] == true) {
         Fluttertoast.showToast(msg: "Thành công!");
         if (mounted) Navigator.pop(context, true);
       }
     } catch (e) {
-      Fluttertoast.showToast(msg: "Lỗi lưu dữ liệu");
-    } finally {
-      if(mounted) setState(() => _isSubmitting = false);
-    }
+      Fluttertoast.showToast(msg: e.toString(), backgroundColor: Colors.red);
+    } finally { if (mounted) setState(() => _isSubmitting = false); }
   }
 
-  /// Chức năng: Xử lý logic chọn ảnh đại diện chính hoặc nhiều ảnh phụ từ thư viện thiết bị.
-  /// Tham số đầu vào: [isThumb] - Đúng nếu là ảnh đại diện chính, Sai nếu là ảnh mô tả phụ.
-  /// Giá trị trả về: Future<void>.
-  Future<void> _pickImage(bool isThumb) async {
-    if (_isPickingImage) return;
-    setState(() => _isPickingImage = true);
-    try {
-      if (isThumb) {
-        final img = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-        if (img != null) setState(() => _thumbnail = img);
-      } else {
-        final List<XFile> imgs = await _picker.pickMultiImage(imageQuality: 80);
-        if (imgs.isNotEmpty) setState(() => _subImages.addAll(imgs));
-      }
-    } finally { if (mounted) setState(() => _isPickingImage = false); }
-  }
-
-  /// Chức năng: Xây dựng khu vực hiển thị và quản lý hình ảnh sản phẩm.
+  /// Các Widget UI phụ trợ (Ảnh, Card, Input, Chips...)
   Widget _buildImageSection(double px, ThemeData theme, bool isDark) {
     return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.2 : 0.05), blurRadius: 10)]
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: theme.cardColor, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.2 : 0.05), blurRadius: 10)]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           _buildSectionTitle("ẢNH SẢN PHẨM", px, isDark),
-          const SizedBox(height: 12),
-          /// Ô chọn ảnh đại diện chính của sản phẩm.
+          const SizedBox(height: 10),
           GestureDetector(
-              onTap: () => _pickImage(true),
-              child: Container(
-                  height: 180, width: double.infinity,
-                  decoration: BoxDecoration(
-                      color: isDark ? Colors.white10 : Colors.grey[50],
-                      borderRadius: BorderRadius.circular(15),
-                      border: Border.all(color: isDark ? Colors.white24 : Colors.grey[200]!)
-                  ),
-                  child: _thumbnail != null
-                      ? ClipRRect(borderRadius: BorderRadius.circular(15), child: Image.file(File(_thumbnail!.path), fit: BoxFit.cover))
-                      : widget.phone != null
-                      ? ClipRRect(borderRadius: BorderRadius.circular(15), child: ImageHelper.load(widget.phone!.thumbnailUrl))
-                      : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                    const Icon(Icons.add_a_photo, size: 40, color: Color(0xFF0047AB)),
-                    Text("Ảnh đại diện chính", style: TextStyle(color: isDark ? Colors.white70 : Colors.black54))
-                  ])
-              )
+            onTap: () => _pickImage(true),
+            child: Container(
+              height: 180, width: double.infinity,
+              decoration: BoxDecoration(color: isDark ? Colors.white10 : Colors.grey[50], borderRadius: BorderRadius.circular(15), border: Border.all(color: isDark ? Colors.white24 : Colors.grey[200]!)),
+              child: _thumbnail != null
+                  ? ClipRRect(borderRadius: BorderRadius.circular(15), child: Image.file(File(_thumbnail!.path), fit: BoxFit.cover))
+                  : widget.phone != null
+                  ? ClipRRect(borderRadius: BorderRadius.circular(15), child: ImageHelper.load(widget.phone!.thumbnailUrl))
+                  : Column(mainAxisAlignment: MainAxisAlignment.center, children: [const Icon(Icons.add_a_photo, size: 40, color: Color(0xFF0047AB)), Text("Ảnh đại diện chính", style: TextStyle(color: isDark ? Colors.white70 : Colors.black54))]),
+            ),
           ),
           const SizedBox(height: 16),
-          /// Danh sách trượt ngang hiển thị các ảnh mô tả phụ đã chọn.
           SizedBox(
-              height: 80,
-              child: ListView.builder(
-                  scrollDirection: Axis.horizontal,
-                  cacheExtent: 300,
-                  itemCount: _subImages.length + 1,
-                  itemBuilder: (ctx, index) {
-                    /// Mục cuối cùng trong danh sách là nút bấm để chọn thêm ảnh phụ.
-                    if (index == _subImages.length) {
-                      return GestureDetector(
-                          onTap: () => _pickImage(false),
-                          child: Container(
-                              width: 80, margin: const EdgeInsets.only(right: 8),
-                              decoration: BoxDecoration(color: isDark ? Colors.white10 : Colors.grey[100], borderRadius: BorderRadius.circular(10), border: Border.all(color: isDark ? Colors.white24 : Colors.grey[300]!)),
-                              child: const Icon(Icons.add_photo_alternate_outlined)
-                          )
-                      );
-                    }
-                    /// Hiển thị ảnh phụ kèm nút xóa nhanh cho từng ảnh.
-                    return Stack(children: [
-                      Container(width: 80, margin: const EdgeInsets.only(right: 8), decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), image: DecorationImage(image: FileImage(File(_subImages[index].path)), fit: BoxFit.cover))),
-                      Positioned(right: 12, top: 4, child: GestureDetector(onTap: () => setState(() => _subImages.removeAt(index)), child: Container(padding: const EdgeInsets.all(2), decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle), child: const Icon(Icons.close, size: 12, color: Colors.white))))
-                    ]);
-                  }
-              )
-          ),
-        ]));
-  }
-
-  /// Chức năng: Tạo khung bao bọc (Card) cho từng nhóm thông tin để đồng nhất giao diện Minimalism.
-  Widget _buildCardWrapper(double px, ThemeData theme, bool isDark, String title, List<Widget> children) {
-    return Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-            color: theme.cardColor,
-            borderRadius: BorderRadius.circular(20),
-            boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.2 : 0.05), blurRadius: 10)]
-        ),
-        child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.blueGrey[200] : Colors.blueGrey, fontSize: 13 + px)),
-              Divider(height: 24, color: isDark ? Colors.white10 : Colors.grey[200]),
-              ...children
-            ]
-        )
-    );
-  }
-
-  /// Chức năng: Tạo ô nhập liệu chuẩn (TextFormField) cho toàn bộ form.
-  /// Tham số đầu vào: [ctrl], [label], [px], [isDark], các cấu hình bàn phím và nhãn gợi ý.
-  Widget _buildInput(TextEditingController ctrl, String label, double px, bool isDark, {bool isNum = false, int maxLines = 1, String? suffix, String? hint, TextInputAction? action}) {
-    return Padding(
-        padding: const EdgeInsets.only(bottom: 16),
-        child: TextFormField(
-            controller: ctrl,
-            maxLines: maxLines,
-            textInputAction: action,
-            keyboardType: isNum ? TextInputType.number : TextInputType.multiline,
-            style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14 + px),
-            decoration: InputDecoration(
-                labelText: label,
-                labelStyle: TextStyle(color: isDark ? Colors.white70 : Colors.black54, fontSize: 14 + px),
-                hintText: hint,
-                hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38),
-                suffixText: suffix,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                filled: true,
-                fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.grey[50]
+            height: 80,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _subImages.length + 1,
+              itemBuilder: (ctx, index) {
+                if (index == _subImages.length) {
+                  return GestureDetector(
+                    onTap: () => _pickImage(false),
+                    child: Container(width: 80, margin: const EdgeInsets.only(right: 8), decoration: BoxDecoration(color: isDark ? Colors.white10 : Colors.grey[100], borderRadius: BorderRadius.circular(10), border: Border.all(color: isDark ? Colors.white24 : Colors.grey[300]!)), child: const Icon(Icons.add_photo_alternate_outlined)),
+                  );
+                }
+                return Stack(
+                  children: [
+                    Container(width: 80, margin: const EdgeInsets.only(right: 8), decoration: BoxDecoration(borderRadius: BorderRadius.circular(10), image: DecorationImage(image: FileImage(File(_subImages[index].path)), fit: BoxFit.cover))),
+                    Positioned(right: 12, top: 4, child: GestureDetector(onTap: () => setState(() => _subImages.removeAt(index)), child: Container(padding: const EdgeInsets.all(2), decoration: const BoxDecoration(color: Colors.red, shape: BoxShape.circle), child: const Icon(Icons.close, size: 12, color: Colors.white)))),
+                  ],
+                );
+              },
             ),
-            validator: (v) => (v == null || v.trim().isEmpty) ? "Bắt buộc" : null
-        )
+          ),
+        ],
+      ),
     );
   }
 
-  /// Chức năng: Xây dựng bộ nút lựa chọn tình trạng máy (Mới/Cũ).
-  Widget _buildConditionChips(bool isDark) {
+  Widget _buildCardWrapper(double px, ThemeData theme, bool isDark, String title, List<Widget> children) {
+    return Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: theme.cardColor, borderRadius: BorderRadius.circular(20), boxShadow: [BoxShadow(color: Colors.black.withOpacity(isDark ? 0.2 : 0.05), blurRadius: 10)]), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(title, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.blueGrey[200] : Colors.blueGrey, fontSize: 13 + px)), Divider(height: 24, color: isDark ? Colors.white10 : Colors.grey[200]), ...children]));
+  }
+
+  Widget _buildInput(TextEditingController ctrl, String label, double px, ThemeData theme, bool isDark, {bool isNum = false, int maxLines = 1, String? suffix, String? hint}) {
+    return Padding(padding: const EdgeInsets.only(bottom: 16), child: TextFormField(controller: ctrl, maxLines: maxLines, keyboardType: isNum ? TextInputType.number : TextInputType.multiline, style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: InputDecoration(labelText: label, labelStyle: TextStyle(color: isDark ? Colors.white70 : Colors.black54), hintText: hint, hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38), suffixText: suffix, border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)), filled: true, fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.grey[50]), validator: (v) => (v == null || v.isEmpty) ? "Bắt buộc" : null));
+  }
+
+  Widget _buildConditionChips(double px, bool isDark) {
     final list = [{'v': 'new', 'l': 'MỚI'}, {'v': 'used', 'l': 'CŨ'}];
-    return Wrap(
-        spacing: 12,
-        children: list.map((c) => ChoiceChip(
-            label: Text(c['l']!, style: const TextStyle(fontWeight: FontWeight.bold)),
-            selected: _condition == c['v'],
-            selectedColor: const Color(0xFF0047AB),
-            backgroundColor: isDark ? Colors.white10 : Colors.grey[200],
-            labelStyle: TextStyle(color: _condition == c['v'] ? Colors.white : (isDark ? Colors.white70 : Colors.black)),
-            onSelected: (_) => setState(() => _condition = c['v']!)
-        )).toList()
-    );
+    return Wrap(spacing: 12, children: list.map((c) => ChoiceChip(label: Text(c['l']!, style: const TextStyle(fontWeight: FontWeight.bold)), selected: _condition == c['v'], selectedColor: const Color(0xFF0047AB), backgroundColor: isDark ? Colors.white10 : Colors.grey[200], labelStyle: TextStyle(color: _condition == c['v'] ? Colors.white : (isDark ? Colors.white70 : Colors.black)), onSelected: (_) => setState(() => _condition = c['v']!))).toList());
   }
 
-  /// Chức năng: Hiển thị tiêu đề cho từng phân đoạn nhỏ trong trang.
-  Widget _buildSectionTitle(String t, double px, bool isDark) => Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(t, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.blueGrey[100] : Colors.blueGrey, fontSize: 13 + px))
-  );
-
-  /// Chức năng: Xây dựng nút bấm chính để thực hiện đăng tin hoặc cập nhật.
-  Widget _buildSubmitButton(bool isEdit, double px) {
-    return ElevatedButton(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF0047AB),
-          minimumSize: const Size(double.infinity, 60),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-          elevation: 0,
-        ),
-        /// Vô hiệu hóa nút khi đang trong quá trình nộp dữ liệu.
-        onPressed: _isSubmitting ? null : _submitData,
-        child: _isSubmitting
-            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-            : Text(isEdit ? "CẬP NHẬT THAY ĐỔI" : "XÁC NHẬN ĐĂNG BÁN",
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16 + px))
-    );
-  }
+  Widget _buildSectionTitle(String t, double px, bool isDark) => Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(t, style: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.blueGrey[100] : Colors.blueGrey, fontSize: 13 + px)));
 }

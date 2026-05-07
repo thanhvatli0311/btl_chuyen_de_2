@@ -1,11 +1,9 @@
-// 📂 file: lib/data/models/revenue_transaction_model.dart
-
 class RevenueTransactionModel {
   final int id;
-  final String type; // sale_revenue, withdraw, fee_collection...
+  final String type;
   final double amount;
   final double balanceAfter;
-  final String? referenceId; // Mã đơn hàng hoặc mã rút tiền
+  final String? referenceId;
   final DateTime createdAt;
 
   RevenueTransactionModel({

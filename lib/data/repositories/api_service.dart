@@ -38,7 +38,7 @@ class ApiService {
       'Accept': 'application/json',
       if (token != null) 'Authorization': 'Bearer $token'
     },
-    contentType: isMultipart ? 'multipart/form-data' : 'application/json',
+    contentType: isMultipart ? null : 'application/json',
   );
 
   /// Hàm xử lý đăng nhập người dùng.
@@ -63,8 +63,7 @@ class ApiService {
   /// Tham số: email nhận mã.
   /// Trả về: Toàn bộ dữ liệu phản hồi từ máy chủ.
   Future<Response> sendOtp(String email) async {
-    final res = await _dio.post('/send-otp', data: {'email': email});
-    return res.data;
+    return await _dio.post('/send-otp', data: {'email': email});
   }
 
   /// Hàm xác minh mã OTP người dùng đã nhập.
@@ -82,6 +81,7 @@ class ApiService {
     final res = await _dio.post('/password/reset', data: data);
     return res.data;
   }
+
 
   /// Hàm lấy thông tin chi tiết cá nhân của người dùng hiện tại.
   /// Tham số: token xác thực.
@@ -162,16 +162,26 @@ class ApiService {
     required List<String> subImagePaths,
     required String token,
   }) async {
+    // SỬA TẠI ĐÊY: Làm phẳng mảng specs theo định dạng PHP[cite: 17]
+    final Map<String, dynamic> finalData = Map.from(data);
+    final List<Map<String, dynamic>> specs = List<Map<String, dynamic>>.from(finalData.remove('specs') ?? []);
+
+    FormData formData = FormData.fromMap(finalData);
+
     /// Khởi tạo FormData và thêm ảnh đại diện chính của sản phẩm.
-    FormData formData = FormData.fromMap({
-      ...data,
-      'thumbnail': await MultipartFile.fromFile(thumbnailPath, filename: 'main.jpg'),
-    });
+    formData.files.add(MapEntry('thumbnail', await MultipartFile.fromFile(thumbnailPath, filename: 'main.jpg')));
 
     /// Vòng lặp đính kèm tất cả các ảnh phụ vào mảng 'images[]'.
     for (var path in subImagePaths) {
       formData.files.add(MapEntry('images[]', await MultipartFile.fromFile(path, filename: 'sub.jpg')));
     }
+
+    // SỬA TẠI ĐÂY: Thêm specs vào fields thủ công[cite: 17]
+    for (int i = 0; i < specs.length; i++) {
+      formData.fields.add(MapEntry('specs[$i][spec_key]', specs[i]['spec_key']!));
+      formData.fields.add(MapEntry('specs[$i][spec_value]', specs[i]['spec_value']!));
+    }
+
     return await _dio.post('/shop/phones', data: formData, options: _auth(token, isMultipart: true));
   }
 
@@ -185,16 +195,19 @@ class ApiService {
     List<String>? subImagePaths,
     required String token,
   }) async {
-    Map<String, dynamic> payload = Map<String, dynamic>.from(data);
+    // SỬA TẠI ĐÊY: Làm phẳng mảng specs[cite: 17]
+    final Map<String, dynamic> finalData = Map.from(data);
+    final List<Map<String, dynamic>> specs = List<Map<String, dynamic>>.from(finalData.remove('specs') ?? []);
+
     /// Giả lập phương thức PUT để Laravel có thể nhận diện yêu cầu cập nhật.
-    payload['_method'] = 'PUT';
+    finalData['_method'] = 'PUT';
 
     /// Chỉ đính kèm tệp nếu người dùng chọn ảnh mới từ thiết bị (không bắt đầu bằng http).
     if (thumbnailPath != null && !thumbnailPath.startsWith('http')) {
-      payload['thumbnail'] = await MultipartFile.fromFile(thumbnailPath, filename: 'thumb.jpg');
+      finalData['thumbnail'] = await MultipartFile.fromFile(thumbnailPath, filename: 'thumb.jpg');
     }
 
-    FormData formData = FormData.fromMap(payload);
+    FormData formData = FormData.fromMap(finalData);
 
     /// Xử lý danh sách ảnh phụ, chỉ tải lên những tệp tin nằm ở bộ nhớ máy.
     if (subImagePaths != null && subImagePaths.isNotEmpty) {
@@ -206,6 +219,13 @@ class ApiService {
         }
       }
     }
+
+    // SỬA TẠI ĐÂY: Thêm specs vào fields thủ công[cite: 17]
+    for (int i = 0; i < specs.length; i++) {
+      formData.fields.add(MapEntry('specs[$i][spec_key]', specs[i]['spec_key']!));
+      formData.fields.add(MapEntry('specs[$i][spec_value]', specs[i]['spec_value']!));
+    }
+
     return await _dio.post('/shop/phones/$id', data: formData, options: _auth(token, isMultipart: true));
   }
 
@@ -227,7 +247,7 @@ class ApiService {
   Future<List<PhoneModel>> getMyShopPhones(String token) async {
     try {
       final res = await _dio.get('/shop/phones', options: _auth(token));
-      if (res.data['success'] == true) {
+      if (res.data is Map && res.data['success'] == true) {
         final List rawData = res.data['data'];
         return rawData.map((e) => PhoneModel.fromJson(e)).toList();
       }
@@ -285,7 +305,7 @@ class ApiService {
   Future<List<BrandModel>> getBrands() async {
     try {
       final res = await _dio.get('/brands');
-      if (res.statusCode == 200) {
+      if (res.statusCode == 200 && res.data is Map && res.data['data'] != null) {
         final List rawData = res.data['data'];
         return rawData.map((e) => BrandModel.fromJson(e)).toList();
       }
@@ -298,7 +318,7 @@ class ApiService {
   Future<List<CategoryModel>> getCategories() async {
     try {
       final res = await _dio.get('/categories');
-      if (res.statusCode == 200) {
+      if (res.statusCode == 200 && res.data is Map && res.data['data'] != null) {
         final List rawData = res.data['data'];
         return rawData.map((e) => CategoryModel.fromJson(e)).toList();
       }
@@ -444,22 +464,31 @@ class ApiService {
   /// Hàm đăng một bản tin mới đính kèm nhiều hình ảnh minh họa.
   /// Tham số: title, content của bài viết; imagePaths - Danh sách đường dẫn ảnh; token xác thực.
   /// Trả về: Response kết quả đăng bài.
-  Future<Response> storeNewsWithImages({required String title, required String content, required List<String> imagePaths, required String token}) async {
+  Future<Response> storeNewsWithImages({
+    required String title, required String content,
+    required List<String> imagePaths, required String token
+  }) async {
     FormData formData = FormData.fromMap({'title': title, 'content': content});
-    /// Đưa từng tệp tin ảnh vào mảng 'news_images[]' để gửi lên máy chủ.
+
     for (String path in imagePaths) {
-      formData.files.add(MapEntry('news_images[]', await MultipartFile.fromFile(path)));
+      formData.files.add(MapEntry(
+          'news_images[]',
+          await MultipartFile.fromFile(path, filename: path.split('/').last)
+      ));
     }
-    return _dio.post('/shop/news', data: formData, options: _auth(token, isMultipart: true));
+    return await _dio.post('/shop/news', data: formData, options: _auth(token, isMultipart: true));
   }
 
   /// Hàm cập nhật nội dung bài đăng tin tức, lọc bỏ ảnh cũ và thêm ảnh mới.
   /// Tham số: id bài viết; title, content; imagePaths - Danh sách ảnh; token xác thực.
   /// Trả về: Response kết quả cập nhật.
-  Future<Response> updateNewsWithImages({required int id, required String title, required String content, required List<String> imagePaths, required String token}) async {
+  Future<Response> updateNewsWithImages({
+    required int id, required String title, required String content,
+    required List<String> imagePaths, required String token
+  }) async {
     Map<String, dynamic> data = {'title': title, 'content': content, '_method': 'PUT'};
     FormData formData = FormData.fromMap(data);
-    /// Chỉ tải lên những hình ảnh mới chọn từ máy (không phải ảnh lấy từ link internet).
+
     for (String path in imagePaths) {
       if (!path.startsWith('http')) {
         formData.files.add(MapEntry('news_images[]', await MultipartFile.fromFile(path)));

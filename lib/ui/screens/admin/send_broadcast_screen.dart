@@ -51,7 +51,7 @@ class _SendBroadcastScreenState extends State<SendBroadcastScreen> {
                   SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      "Lưu ý: Tin nhắn này sẽ xuất hiện trong hộp thư của tất cả người dùng trên hệ thống TSP Market.",
+                      "Lưu ý: Tin nhắn này sẽ xuất hiện trong hộp thư của tất cả người dùng trên hệ thống.",
                       style: TextStyle(fontSize: 13, color: Colors.blueGrey, fontWeight: FontWeight.w500),
                     ),
                   ),
@@ -75,7 +75,7 @@ class _SendBroadcastScreenState extends State<SendBroadcastScreen> {
                   TextField(
                     controller: _titleCtrl,
                     decoration: const InputDecoration(
-                      hintText: "Ví dụ: Ưu đãi tháng 5...",
+                      hintText: "Nhập tiêu đề",
                       border: UnderlineInputBorder(),
                     ),
                   ),

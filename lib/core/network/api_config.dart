@@ -1,5 +1,5 @@
 class ApiConfig {
-  static const String _zrokUrl = "https://jj2fhklv294b.shares.zrok.io";
+  static const String _zrokUrl = "https://rl7p8le33ubc.shares.zrok.io";
   static const String baseUrl = "$_zrokUrl/api";
 
   // Domain gốc để xử lý hình ảnh

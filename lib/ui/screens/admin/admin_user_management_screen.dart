@@ -61,7 +61,7 @@ class _AdminUnifiedManagementScreenState extends State<AdminUnifiedManagementScr
       child: Scaffold(
         backgroundColor: theme.scaffoldBackgroundColor,
         appBar: AppBar(
-          title: const Text("HỆ THỐNG QUẢN TRỊ",
+          title: const Text("QUẢN LÝ NGƯỜI DÙNG",
               style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 0.5)),
           centerTitle: true,
           elevation: 0,

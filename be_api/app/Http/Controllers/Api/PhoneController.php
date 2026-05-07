@@ -73,10 +73,10 @@ class PhoneController extends Controller
      * Tham số đầu vào: Request $request (Thông tin máy, tệp hình ảnh, mảng thông số kỹ thuật).
      * Giá trị trả về: JSON thông tin máy vừa tạo kèm mã trạng thái 201.
      */
+
     public function store(Request $request)
     {
         try {
-            // Xác thực dữ liệu đầu vào bắt buộc từ phía khách hàng/shop
             $request->validate([
                 'brand_id' => 'required|exists:brands,id',
                 'category_id' => 'required|exists:categories,id',
@@ -88,18 +88,15 @@ class PhoneController extends Controller
                 'specs' => 'required|array',
             ]);
 
-
-            // Sử dụng Database Transaction để đảm bảo tính nhất quán (nếu lưu máy lỗi thì không lưu thông số)
             return DB::transaction(function () use ($request) {
-                // Xử lý lưu trữ ảnh đại diện chính của sản phẩm vào ổ đĩa public
                 $thumbnailPath = $request->thumbnail;
                 if ($request->hasFile('thumbnail')) {
                     $thumbnailPath = $request->file('thumbnail')->store('products', 'public');
                 }
 
-                // Duyệt mảng để lưu trữ các hình ảnh chi tiết bổ sung
                 $imagePaths = [];
-                if ($request->hasFile('images')) {
+                // SỬA TẠI ĐÂY: Kiểm tra mảng file thay vì hasFile để tránh lỗi lọt lưới mảng Multipart[cite: 10]
+                if ($request->file('images')) {
                     foreach ($request->file('images') as $file) {
                         $imagePaths[] = $file->store('products/details', 'public');
                     }
@@ -111,17 +108,16 @@ class PhoneController extends Controller
                     'category_id' => $request->category_id,
                     'title' => $request->title,
                     'description' => $request->description,
-                    'slug' => Str::slug($request->title) . '-' . time(), // Tạo đường dẫn không dấu kèm mốc thời gian để tránh trùng
+                    'slug' => Str::slug($request->title) . '-' . time(),
                     'price' => $request->price,
                     'discount_price' => $request->discount_price,
                     'stock' => $request->stock,
                     'condition' => $request->condition,
                     'thumbnail' => $thumbnailPath,
-                    'images' => $imagePaths, // Mảng đường dẫn ảnh sẽ được Eloquent tự cast sang JSON
+                    'images' => $imagePaths,
                     'status' => 'active',
                 ]);
 
-                // Lưu danh sách các thông số kỹ thuật chi tiết (RAM, Pin, Chip...) vào bảng liên kết
                 foreach ($request->specs as $spec) {
                     if(!empty($spec['spec_key']) && !empty($spec['spec_value'])) {
                         $phone->specs()->create([
@@ -141,7 +137,6 @@ class PhoneController extends Controller
             return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
         }
     }
-
     /**
      * Chức năng: Lấy dữ liệu chi tiết của một sản phẩm thông qua đường dẫn slug (Public).
      * Tham số đầu vào: $slug (Chuỗi định danh duy nhất của sản phẩm).

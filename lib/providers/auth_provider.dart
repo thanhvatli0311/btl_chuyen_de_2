@@ -7,24 +7,25 @@ class AuthProvider extends ChangeNotifier {
   bool _isLoading = false;
   bool get isLoading => _isLoading;
 
+  /// Chức năng: Gọi API đăng nhập và cập nhật thông tin người dùng vào hệ thống.
   Future<bool> login(String email, String password, dynamic baseProvider) async {
     _isLoading = true;
     notifyListeners();
     try {
       final res = await _apiService.login(email, password);
+      final isSuccess = res.data['success'] == true || res.data['success'].toString() == 'true';
 
-      if (res.data['success'] == true) {
+      if (res.statusCode == 200 && isSuccess) {
         await baseProvider.handleLoginSuccess(
             res.data['access_token'].toString(),
             res.data['user']
         );
         return true;
       } else {
-        // ✅ BÁO LỖI CHO NGƯỜI DÙNG: Hiển thị lý do từ Server (sai pass, mail không tồn tại...)
-        Fluttertoast.showToast(msg: res.data['message'] ?? "Thông tin đăng nhập không chính xác!");
+        Fluttertoast.showToast(msg: res.data['message'] ?? "Đăng nhập thất bại!");
       }
     } catch (e) {
-      Fluttertoast.showToast(msg: "Lỗi kết nối máy chủ, vui lòng thử lại sau!");
+      Fluttertoast.showToast(msg: "Lỗi kết nối máy chủ!");
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -32,16 +33,17 @@ class AuthProvider extends ChangeNotifier {
     return false;
   }
 
+  /// Chức năng: Gửi yêu cầu mã OTP khôi phục mật khẩu.
   Future<bool> sendOtp(String email) async {
     try {
       final res = await _apiService.sendOtp(email);
-      // ✅ res giờ là Response object nên phải dùng .data
-      if (res.data['success'] == true) return true;
+      final isSuccess = res.data['success'] == true || res.data['success'].toString() == 'true';
 
-      Fluttertoast.showToast(msg: res.data['message'] ?? "Không thể gửi mã OTP!");
+      if (isSuccess) return true;
+      Fluttertoast.showToast(msg: res.data['message'] ?? "Không thể gửi mã!");
       return false;
     } catch (_) {
-      Fluttertoast.showToast(msg: "Lỗi hệ thống khi gửi mã!");
+      Fluttertoast.showToast(msg: "Lỗi hệ thống!");
       return false;
     }
   }

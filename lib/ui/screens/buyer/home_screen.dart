@@ -8,7 +8,7 @@ import '../../../providers/base_provider.dart';
 import '../../../providers/cart_provider.dart';
 import '../../../data/models/phone_model.dart';
 import '../../../providers/admin_provider.dart';
-import '../../../providers/notification_provider.dart'; // Nạp Provider thông báo
+import '../../../providers/notification_provider.dart';
 import '../../../core/utils/image_helper.dart';
 
 import '../admin/brand_management_screen.dart';
@@ -20,7 +20,7 @@ import '../seller/promotion_management_screen.dart';
 import '../seller/seller_policy_screen.dart';
 import '../admin/send_broadcast_screen.dart';
 import '../news/create_news_screen.dart';
-import '../notification/notification_screen.dart'; // Nạp màn hình thông báo
+import '../notification/notification_screen.dart';
 import 'phone_detail_screen.dart';
 import 'cart_screen.dart';
 import '../admin/admin_revenue_detail_screen.dart';
@@ -68,10 +68,14 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
+      final base = context.read<BaseProvider>();
       /// Sử dụng Future.wait để chạy song song các yêu cầu mạng, giúp giảm thời gian chờ đợi.
       await Future.wait([
         _fetchData(isInitial: true),
         _loadBrands(),
+        if (base.token != null)
+          context.read<NotificationProvider>().fetchNotifications(base.token!),
+
       ]);
     } catch (e) {
       debugPrint("❌ Lỗi nạp dữ liệu đầu: $e");
